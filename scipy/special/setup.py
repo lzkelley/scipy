@@ -104,11 +104,19 @@ def configuration(parent_package='',top_path=None):
                          **cfg
                          )
 
+    # combinatoris
+    config.add_extension('_comb',
+                         sources=['_comb.c'])
+
     config.add_data_files('tests/*.py')
     config.add_data_files('tests/data/README')
     config.add_data_files('tests/data/*.npz')
 
+    config.add_subpackage('_precompute')
+    config.add_data_files('_precompute/tests/*.py')
+
     return config
+
 
 if __name__ == '__main__':
     from numpy.distutils.core import setup

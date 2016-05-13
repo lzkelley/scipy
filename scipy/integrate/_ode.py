@@ -119,7 +119,7 @@ class ode(object):
         `f` should return a scalar, array or list (not a tuple).
     jac : callable ``jac(t, y, *jac_args)``, optional
         Jacobian of the right-hand side, ``jac[i,j] = d f[i] / d y[j]``.
-        ``jac_args`` is set by calling ``set_f_params(*args)``.
+        ``jac_args`` is set by calling ``set_jac_params(*args)``.
 
     Attributes
     ----------
@@ -376,7 +376,7 @@ class ode(object):
         ----------
         name : str
             Name of the integrator.
-        integrator_params :
+        integrator_params
             Additional parameters for the integrator.
         """
         integrator = find_integrator(name)
@@ -552,7 +552,7 @@ class complex_ode(ode):
         ----------
         name : str
             Name of the integrator
-        integrator_params :
+        integrator_params
             Additional parameters for the integrator.
         """
         if name == 'zvode':

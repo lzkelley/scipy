@@ -59,9 +59,9 @@ def bytescale(data, cmin=None, cmax=None, high=255, low=0):
     Examples
     --------
     >>> from scipy.misc import bytescale
-    >>> img = array([[ 91.06794177,   3.39058326,  84.4221549 ],
-    ...              [ 73.88003259,  80.91433048,   4.88878881],
-    ...              [ 51.53875334,  34.45808177,  27.5873488 ]])
+    >>> img = np.array([[ 91.06794177,   3.39058326,  84.4221549 ],
+    ...                 [ 73.88003259,  80.91433048,   4.88878881],
+    ...                 [ 51.53875334,  34.45808177,  27.5873488 ]])
     >>> bytescale(img)
     array([[255,   0, 236],
            [205, 225,   4],
@@ -226,7 +226,17 @@ def fromimage(im, flatten=False, mode=None):
         raise TypeError("Input is not a PIL image.")
 
     if mode is not None:
-        im = im.convert(mode)
+        if mode != im.mode:
+            im = im.convert(mode)
+    elif im.mode == 'P':
+        # Mode 'P' means there is an indexed "palette".  If we leave the mode
+        # as 'P', then when we do `a = array(im)` below, `a` will be a 2-D
+        # containing the indices into the palette, and not a 3-D array
+        # containing the RGB or RGBA values.
+        if 'transparency' in im.info:
+            im = im.convert('RGBA')
+        else:
+            im = im.convert('RGB')
 
     if flatten:
         im = im.convert('F')
@@ -374,7 +384,8 @@ def imrotate(arr, angle, interp='bilinear'):
 
         - 'nearest' :  for nearest neighbor
         - 'bilinear' : for bilinear
-        - 'cubic' : cubic
+        - 'lanczos' : for lanczos
+        - 'cubic' : for bicubic
         - 'bicubic' : for bicubic
 
     Returns
@@ -384,7 +395,7 @@ def imrotate(arr, angle, interp='bilinear'):
 
     """
     arr = asarray(arr)
-    func = {'nearest': 0, 'bilinear': 2, 'bicubic': 3, 'cubic': 3}
+    func = {'nearest': 0, 'lanczos': 1, 'bilinear': 2, 'bicubic': 3, 'cubic': 3}
     im = toimage(arr)
     im = im.rotate(angle, resample=func[interp])
     return fromimage(im)
@@ -447,7 +458,7 @@ def imresize(arr, size, interp='bilinear', mode=None):
         * tuple - Size of the output image.
 
     interp : str, optional
-        Interpolation to use for re-sizing ('nearest', 'bilinear', 'bicubic'
+        Interpolation to use for re-sizing ('nearest', 'lanczos', 'bilinear', 'bicubic'
         or 'cubic').
 
     mode : str, optional
@@ -473,7 +484,7 @@ def imresize(arr, size, interp='bilinear', mode=None):
         size = tuple((array(im.size)*size).astype(int))
     else:
         size = (size[1], size[0])
-    func = {'nearest': 0, 'bilinear': 2, 'bicubic': 3, 'cubic': 3}
+    func = {'nearest': 0, 'lanczos': 1, 'bilinear': 2, 'bicubic': 3, 'cubic': 3}
     imnew = im.resize(size, resample=func[interp])
     return fromimage(imnew)
 

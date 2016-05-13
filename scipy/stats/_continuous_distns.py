@@ -12,24 +12,24 @@ from scipy import special
 from scipy import optimize
 from scipy import integrate
 from scipy.special import (gammaln as gamln, gamma as gam, boxcox, boxcox1p,
-                           inv_boxcox, inv_boxcox1p, erfc, chndtr, chndtrix)
+                           inv_boxcox, inv_boxcox1p, erfc, chndtr, chndtrix,
+                           i0, i1, ndtr as _norm_cdf, log_ndtr as _norm_logcdf)
 
-from numpy import (where, arange, putmask, ravel, sum, shape,
+from numpy import (where, arange, putmask, ravel, shape,
                    log, sqrt, exp, arctanh, tan, sin, arcsin, arctan,
                    tanh, cos, cosh, sinh)
 
-from numpy import polyval, place, extract, any, asarray, nan, inf, pi
+from numpy import polyval, place, extract, asarray, nan, inf, pi
 
 import numpy as np
-from . import vonmises_cython
+
+from . import _stats
 from ._tukeylambda_stats import (tukeylambda_variance as _tlvar,
                                  tukeylambda_kurtosis as _tlkurt)
-
 from ._distn_infrastructure import (
         rv_continuous, valarray, _skew, _kurtosis, _lazywhere,
         _ncx2_log_pdf, _ncx2_pdf, _ncx2_cdf, get_distribution_names,
         )
-
 from ._constants import _XMIN, _EULER, _ZETA3, _XMAX, _LOGXMAX
 
 ## Kolmogorov-Smirnov one-sided and two-sided test statistics
@@ -81,24 +81,16 @@ def _norm_logpdf(x):
     return -x**2 / 2.0 - _norm_pdf_logC
 
 
-def _norm_cdf(x):
-    return special.ndtr(x)
-
-
-def _norm_logcdf(x):
-    return special.log_ndtr(x)
-
-
 def _norm_ppf(q):
     return special.ndtri(q)
 
 
 def _norm_sf(x):
-    return special.ndtr(-x)
+    return _norm_cdf(-x)
 
 
 def _norm_logsf(x):
-    return special.log_ndtr(-x)
+    return _norm_logcdf(-x)
 
 
 def _norm_isf(q):
@@ -118,6 +110,10 @@ class norm_gen(rv_continuous):
     The probability density function for `norm` is::
 
         norm.pdf(x) = exp(-x**2/2)/sqrt(2*pi)
+
+    The survival function, ``norm.sf``, is also referred to as the
+    Q-function in some contexts (see, e.g.,
+    `Wikipedia's <https://en.wikipedia.org/wiki/Q-function>`_ definition).
 
     %(after_notes)s
 
@@ -212,13 +208,13 @@ class alpha_gen(rv_continuous):
 
     """
     def _pdf(self, x, a):
-        return 1.0/(x**2)/special.ndtr(a)*_norm_pdf(a-1.0/x)
+        return 1.0/(x**2)/_norm_cdf(a)*_norm_pdf(a-1.0/x)
 
     def _logpdf(self, x, a):
-        return -2*log(x) + _norm_logpdf(a-1.0/x) - log(special.ndtr(a))
+        return -2*log(x) + _norm_logpdf(a-1.0/x) - log(_norm_cdf(a))
 
     def _cdf(self, x, a):
-        return special.ndtr(a-1.0/x) / special.ndtr(a)
+        return _norm_cdf(a-1.0/x) / _norm_cdf(a)
 
     def _ppf(self, q, a):
         return 1.0/asarray(a-special.ndtri(q*special.ndtr(a)))
@@ -615,13 +611,14 @@ bradford = bradford_gen(a=0.0, b=1.0, name='bradford')
 
 
 class burr_gen(rv_continuous):
-    """A Burr continuous random variable.
+    """A Burr (Type III) continuous random variable.
 
     %(before_notes)s
 
     See Also
     --------
-    fisk : a special case of `burr` with ``d = 1``
+    fisk : a special case of either `burr` or ``burr12`` with ``d = 1``
+    burr12 : Burr Type XII distribution
 
     Notes
     -----
@@ -633,24 +630,97 @@ class burr_gen(rv_continuous):
 
     `burr` takes ``c`` and ``d`` as shape parameters.
 
+    This is the PDF corresponding to the third CDF given in Burr's list;
+    specifically, it is equation (11) in Burr's paper [1]_.
+
     %(after_notes)s
+
+    References
+    ----------
+    .. [1] Burr, I. W. "Cumulative frequency functions", Annals of
+       Mathematical Statistics, 13(2), pp 215-232 (1942).
 
     %(example)s
 
     """
     def _pdf(self, x, c, d):
-        return c*d*(x**(-c-1.0))*((1+x**(-c*1.0))**(-d-1.0))
+        return c * d * (x**(-c - 1.0)) * ((1 + x**(-c))**(-d - 1.0))
 
     def _cdf(self, x, c, d):
-        return (1+x**(-c*1.0))**(-d**1.0)
+        return (1 + x**(-c))**(-d)
 
     def _ppf(self, q, c, d):
-        return (q**(-1.0/d)-1)**(-1.0/c)
+        return (q**(-1.0/d) - 1)**(-1.0/c)
 
     def _munp(self, n, c, d):
         nc = 1. * n / c
         return d * special.beta(1.0 - nc, d + nc)
 burr = burr_gen(a=0.0, name='burr')
+
+
+class burr12_gen(rv_continuous):
+    """A Burr (Type XII) continuous random variable.
+
+    %(before_notes)s
+
+    See Also
+    --------
+    fisk : a special case of either `burr` or ``burr12`` with ``d = 1``
+    burr : Burr Type III distribution
+
+    Notes
+    -----
+    The probability density function for `burr` is::
+
+        burr12.pdf(x, c, d) = c * d * x**(c-1) * (1+x**(c))**(-d-1)
+
+    for ``x > 0``.
+
+    `burr12` takes ``c`` and ``d`` as shape parameters.
+
+    This is the PDF corresponding to the twelfth CDF given in Burr's list;
+    specifically, it is equation (20) in Burr's paper [1]_.
+
+    %(after_notes)s
+
+    The Burr type 12 distribution is also sometimes referred to as
+    the Singh-Maddala distribution from NIST [2]_.
+
+    References
+    ----------
+    .. [1] Burr, I. W. "Cumulative frequency functions", Annals of
+       Mathematical Statistics, 13(2), pp 215-232 (1942).
+
+    .. [2] http://www.itl.nist.gov/div898/software/dataplot/refman2/auxillar/b12pdf.htm
+
+    %(example)s
+
+    """
+    def _pdf(self, x, c, d):
+        return np.exp(self._logpdf(x, c, d))
+
+    def _logpdf(self, x, c, d):
+        return log(c) + log(d) + special.xlogy(c-1, x) + special.xlog1py(-d-1, x**c)
+
+    def _cdf(self, x, c, d):
+        return 1 - self._sf(x, c, d)
+
+    def _logcdf(self, x, c, d):
+        return special.log1p(-(1 + x**c)**(-d))
+
+    def _sf(self, x, c, d):
+        return np.exp(self._logsf(x, c, d))
+
+    def _logsf(self, x, c, d):
+        return special.xlog1py(-d, x**c)
+
+    def _ppf(self, q, c, d):
+        return ((1 - q)**(-1.0/d) - 1)**(1.0/c)
+
+    def _munp(self, n, c, d):
+        nc = 1. * n / c
+        return d * special.beta(1.0 + nc, d - nc)
+burr12 = burr12_gen(a=0.0, name='burr12')
 
 
 class fisk_gen(burr_gen):
@@ -1095,12 +1165,12 @@ class exponnorm_gen(rv_continuous):
     def _cdf(self, x, K):
         invK = 1.0 / K
         expval = invK * (0.5 * invK - x)
-        return special.ndtr(x) - exp(expval) * special.ndtr(x - invK)
+        return _norm_cdf(x) - exp(expval) * _norm_cdf(x - invK)
 
     def _sf(self, x, K):
         invK = 1.0 / K
         expval = invK * (0.5 * invK - x)
-        return special.ndtr(-x) + exp(expval) * special.ndtr(x - invK)
+        return _norm_cdf(-x) + exp(expval) * _norm_cdf(x - invK)
 
     def _stats(self, K):
         K2 = K * K
@@ -1240,7 +1310,7 @@ class fatiguelife_gen(rv_continuous):
                 0.5*(log(2*pi) + 3*log(x)))
 
     def _cdf(self, x, c):
-        return special.ndtr(1.0 / c * (sqrt(x) - 1.0/sqrt(x)))
+        return _norm_cdf(1.0 / c * (sqrt(x) - 1.0/sqrt(x)))
 
     def _ppf(self, q, c):
         tmp = c*special.ndtri(q)
@@ -1409,7 +1479,7 @@ class foldnorm_gen(rv_continuous):
         return _norm_pdf(x + c) + _norm_pdf(x-c)
 
     def _cdf(self, x, c):
-        return special.ndtr(x-c) + special.ndtr(x+c) - 1.0
+        return _norm_cdf(x-c) + _norm_cdf(x+c) - 1.0
 
     def _stats(self, c):
         # Regina C. Elandt, Technometrics 3, 551 (1961)
@@ -1785,7 +1855,7 @@ class genextreme_gen(rv_continuous):
 
     def _munp(self, n, c):
         k = arange(0, n+1)
-        vals = 1.0/c**n * sum(
+        vals = 1.0/c**n * np.sum(
             comb(n, k) * (-1)**k * special.gamma(c*k + 1),
             axis=0)
         return where(c*n > -1, vals, inf)
@@ -2374,7 +2444,7 @@ class halfnorm_gen(rv_continuous):
         return 0.5 * np.log(2.0/pi) - x*x/2.0
 
     def _cdf(self, x):
-        return special.ndtr(x)*2-1.0
+        return _norm_cdf(x)*2-1.0
 
     def _ppf(self, q):
         return special.ndtri((1+q)/2.0)
@@ -2531,7 +2601,7 @@ class invgauss_gen(rv_continuous):
 
     %(after_notes)s
 
-    When `mu` is too small, evaluating the cumulative density function will be
+    When `mu` is too small, evaluating the cumulative distribution function will be
     inaccurate due to ``cdf(mu -> 0) = inf * 0``.
     NaNs are returned for ``mu <= 0.0028``.
 
@@ -3027,8 +3097,17 @@ class lognorm_gen(rv_continuous):
     def _cdf(self, x, s):
         return _norm_cdf(log(x) / s)
 
+    def _logcdf(self, x, s):
+        return _norm_logcdf(log(x) / s)
+
     def _ppf(self, q, s):
         return exp(s * _norm_ppf(q))
+
+    def _sf(self, x, s):
+        return _norm_sf(log(x) / s)
+
+    def _logsf(self, x, s):
+        return _norm_logsf(log(x) / s)
 
     def _stats(self, s):
         p = exp(s*s)
@@ -3851,7 +3930,7 @@ class rdist_gen(rv_continuous):
         # There's an issue with hyp2f1, it returns nans near x = +-1, c > 100.
         # Use the generic implementation in that case.  See gh-1285 for
         # background.
-        if any(np.isnan(res)):
+        if np.any(np.isnan(res)):
             return rv_continuous._cdf(self, x, c)
         return res
 
@@ -4079,6 +4158,114 @@ class semicircular_gen(rv_continuous):
     def _entropy(self):
         return 0.64472988584940017414
 semicircular = semicircular_gen(a=-1.0, b=1.0, name="semicircular")
+
+
+class skew_norm_gen(rv_continuous):
+    """A skew-normal random variable.
+
+    %(before_notes)s
+
+    Notes
+    -----
+    The pdf is::
+
+        skewnorm.pdf(x, a) = 2*norm.pdf(x)*norm.cdf(ax)
+
+    `skewnorm` takes ``a`` as a skewness parameter
+    When a=0 the distribution is identical to a normal distribution.
+    rvs implements the method of [1]_.
+
+    %(after_notes)s
+
+    %(example)s
+
+
+    References
+    ----------
+
+    .. [1] A. Azzalini and A. Capitanio (1999). Statistical applications of the
+        multivariate skew-normal distribution. J. Roy. Statist. Soc., B 61, 579-602.
+        http://azzalini.stat.unipd.it/SN/faq-r.html
+    """
+
+    def _argcheck(self, a):
+        return np.isfinite(a)
+
+    def _pdf(self, x, a):
+        return 2.*_norm_pdf(x)*_norm_cdf(a*x)
+
+    def _rvs(self, a):
+        u0 = self._random_state.normal(size=self._size)
+        v = self._random_state.normal(size=self._size)
+        d = a/np.sqrt(1 + a**2)
+        u1 = d*u0 + v*np.sqrt(1 - d**2)
+        return np.where(u0 >= 0, u1, -u1)
+
+    def _stats(self, a, moments='mvsk'):
+        output = [None, None, None, None]
+        const = np.sqrt(2/pi) * a/np.sqrt(1 + a**2)
+
+        if 'm' in moments:
+            output[0] = const
+        if 'v' in moments:
+            output[1] = 1 - const**2
+        if 's' in moments:
+            output[2] = ((4 - pi)/2) * (const/np.sqrt(1 - const**2))**3
+        if 'k' in moments:
+            output[3] = (2*(pi - 3)) * (const**4/(1 - const**2)**2)
+
+        return output
+
+skewnorm = skew_norm_gen(name='skewnorm')
+
+
+class trapz_gen(rv_continuous):
+    """A trapezoidal continuous random variable.
+
+    %(before_notes)s
+
+    Notes
+    -----
+    The trapezoidal distribution can be represented with an up-sloping line
+    from ``loc`` to ``(loc + c*scale)``, then constant to ``(loc + d*scale)``
+    and then downsloping from ``(loc + d*scale)`` to ``(loc+scale)``.
+
+    `trapz` takes ``c`` and ``d`` as shape parameters.
+
+    %(after_notes)s
+
+    The standard form is in the range [0, 1] with c the mode.
+    The location parameter shifts the start to `loc`.
+    The scale parameter changes the width from 1 to `scale`.
+
+    %(example)s
+
+    """
+    def _argcheck(self, c, d):
+        return (c >= 0) & (c <= 1) & (d >= 0) & (d <= 1) & (d >= c)
+
+    def _pdf(self, x, c, d):
+        u = 2 / (d - c + 1)
+
+        condlist = [x < c, x <= d, x > d]
+        choicelist = [u * x / c, u, u * (1 - x) / (1 - d)]
+        return np.select(condlist, choicelist)
+
+    def _cdf(self, x, c, d):
+        condlist = [x < c, x <= d, x > d]
+        choicelist = [x**2 / c / (d - c + 1),
+                      (c + 2 * (x - c)) / (d - c + 1),
+                      1 - ((1 - x)**2 / (d - c + 1) / (1 - d))]
+        return np.select(condlist, choicelist)
+
+    def _ppf(self, q, c, d):
+        qc, qd = self._cdf(c, c, d), self._cdf(d, c, d)
+        condlist = [q < qc, q <= qd, q > qd]
+        choicelist = [np.sqrt(q * c * (1 + d - c)),
+                      0.5 * q * (1 + d - c) + 0.5 * c,
+                      1 - sqrt((1 - q) * (d - c + 1) * (1 - d))]
+        return np.select(condlist, choicelist)
+trapz = trapz_gen(a=0.0, b=1.0, name="trapz")
 
 
 class triang_gen(rv_continuous):
@@ -4352,13 +4539,17 @@ class vonmises_gen(rv_continuous):
         return self._random_state.vonmises(0.0, kappa, size=self._size)
 
     def _pdf(self, x, kappa):
-        return exp(kappa * cos(x)) / (2*pi*special.i0(kappa))
+        return exp(kappa * cos(x)) / (2*pi*i0(kappa))
 
     def _cdf(self, x, kappa):
-        return vonmises_cython.von_mises_cdf(kappa, x)
+        return _stats.von_mises_cdf(kappa, x)
 
     def _stats_skip(self, kappa):
         return 0, None, 0, None
+
+    def _entropy(self, kappa):
+        return (-kappa * i1(kappa) / i0(kappa)
+                + np.log(2 * np.pi * i0(kappa)))
 vonmises = vonmises_gen(name='vonmises')
 vonmises_line = vonmises_gen(a=-np.pi, b=np.pi, name='vonmises_line')
 
@@ -4432,13 +4623,13 @@ class wrapcauchy_gen(rv_continuous):
         c2 = 1-c1
         xp = extract(c1, x)
         xn = extract(c2, x)
-        if (any(xn)):
+        if np.any(xn):
             valn = extract(c2, np.ones_like(x)*val)
             xn = 2*pi - xn
             yn = tan(xn/2.0)
             on = 1.0-1.0/pi*arctan(valn*yn)
             place(output, c2, on)
-        if (any(xp)):
+        if np.any(xp):
             valp = extract(c1, np.ones_like(x)*val)
             yp = tan(xp/2.0)
             op = 1.0/pi*arctan(valp*yp)
